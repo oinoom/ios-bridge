@@ -6,19 +6,55 @@ import base64
 import io
 from typing import Dict, Optional
 from queue import Queue, Empty
-import av
-import numpy as np
-from PIL import Image
 from fractions import Fraction
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCIceCandidate, RTCConfiguration
+
+from PIL import Image
+
+try:
+    import av
+    import numpy as np
+    from aiortc import (
+        RTCPeerConnection,
+        RTCSessionDescription,
+        VideoStreamTrack,
+        RTCIceCandidate,
+        RTCConfiguration,
+    )
+    WEBRTC_DEPS_AVAILABLE = True
+    WEBRTC_IMPORT_ERROR = None
+except Exception as exc:  # pragma: no cover - import-time environment dependent
+    av = None
+    np = None
+    RTCPeerConnection = object
+    RTCSessionDescription = object
+    RTCIceCandidate = object
+    RTCConfiguration = object
+
+    class VideoStreamTrack:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            pass
+
+    WEBRTC_DEPS_AVAILABLE = False
+    WEBRTC_IMPORT_ERROR = exc
 
 from app.core.logging import logger
 from app.services.screenshot_service import ScreenshotService
+
+
+def _ensure_webrtc_dependencies() -> None:
+    if WEBRTC_DEPS_AVAILABLE:
+        return
+
+    raise RuntimeError(
+        "WebRTC mode is unavailable in this environment because optional "
+        f"dependencies failed to import: {WEBRTC_IMPORT_ERROR}"
+    )
 
 class FastVideoTrack(VideoStreamTrack):
     """Fast video track optimized for low latency streaming"""
     
     def __init__(self, service, target_fps=60):
+        _ensure_webrtc_dependencies()
         super().__init__()
         self.service = service
         self.frame_count = 0
@@ -66,6 +102,8 @@ class FastWebRTCService:
     """Fast WebRTC service optimized for continuous streaming with low latency"""
     
     def __init__(self, udid: Optional[str] = None):
+        self.available = WEBRTC_DEPS_AVAILABLE
+        self.dependency_error = str(WEBRTC_IMPORT_ERROR) if WEBRTC_IMPORT_ERROR else None
         self.udid = udid
         
         # WebRTC state
@@ -93,6 +131,13 @@ class FastWebRTCService:
     
     def start_video_stream(self, quality: str = "medium", fps: int = 60) -> bool:
         """Start fast continuous streaming"""
+        if not self.available:
+            logger.warning(
+                "WebRTC requested for %s but optional dependencies are unavailable: %s",
+                self.udid,
+                self.dependency_error,
+            )
+            return False
         if not self.udid:
             logger.error("❌ No UDID set for fast WebRTC streaming")
             return False
@@ -261,6 +306,7 @@ class FastWebRTCService:
     
     async def create_peer_connection(self) -> tuple[str, RTCPeerConnection]:
         """Create new WebRTC peer connection optimized for speed"""
+        _ensure_webrtc_dependencies()
         if not self.stream_active:
             if not self.start_video_stream(self.quality_preset, self.target_fps):
                 raise Exception("Failed to start fast WebRTC stream")
@@ -287,6 +333,7 @@ class FastWebRTCService:
     
     async def handle_offer(self, pc: RTCPeerConnection, offer_data: Dict) -> Dict:
         """Handle WebRTC offer"""
+        _ensure_webrtc_dependencies()
         logger.info(f"📤 Handling fast WebRTC offer for {self.udid}")
         
         await pc.setRemoteDescription(RTCSessionDescription(
@@ -306,6 +353,7 @@ class FastWebRTCService:
     
     async def handle_ice_candidate(self, pc: RTCPeerConnection, candidate_data: Dict):
         """Handle ICE candidate"""
+        _ensure_webrtc_dependencies()
         logger.debug(f"🧊 Handling ICE candidate for fast WebRTC {self.udid}")
         candidate_info = candidate_data.get("candidate")
         if candidate_info:
@@ -361,6 +409,8 @@ class FastWebRTCService:
     def get_status(self) -> Dict:
         """Get service status"""
         return {
+            "available": self.available,
+            "dependency_error": self.dependency_error,
             "stream_active": self.stream_active,
             "connections": len(self.peer_connections),
             "quality": self.quality_preset,

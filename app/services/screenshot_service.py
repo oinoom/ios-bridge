@@ -7,7 +7,6 @@ import io
 from typing import Optional, Dict
 from app.config.settings import settings
 from app.core.logging import logger
-from app.utils.image_utils import ImageUtils
 from app.utils.system_utils import SystemUtils
 
 class ScreenshotService:
