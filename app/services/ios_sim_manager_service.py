@@ -69,6 +69,19 @@ class iOSSimulatorManager:
             return True, result.stdout.strip()
         except subprocess.CalledProcessError as e:
             return False, e.stderr.strip()
+
+    def _resolve_within_root(self, root_path: str, requested_path: str) -> Tuple[bool, Union[Path, str]]:
+        """Resolve a path under a root directory and block traversal outside that root."""
+        try:
+            root = Path(root_path).expanduser().resolve()
+            relative_path = (requested_path or "").lstrip("/")
+            candidate = (root / relative_path).resolve()
+            candidate.relative_to(root)
+            return True, candidate
+        except ValueError:
+            return False, f"Unsafe path outside allowed root: {requested_path}"
+        except Exception as e:
+            return False, str(e)
     
     def _get_available_device_types(self) -> Dict[str, str]:
         """Get all available device types"""
@@ -677,11 +690,11 @@ class iOSSimulatorManager:
             if not success:
                 return False, f"Could not get app container: {container_path}"
             
-            # Construct full destination path
-            if device_path.startswith('/'):
-                device_path = device_path[1:]  # Remove leading slash
-            
-            full_dest_path = os.path.join(container_path.strip(), device_path)
+            success, resolved_path = self._resolve_within_root(container_path.strip(), device_path)
+            if not success:
+                return False, str(resolved_path)
+
+            full_dest_path = str(resolved_path)
             dest_dir = os.path.dirname(full_dest_path)
             
             # Create destination directory if it doesn't exist
@@ -708,18 +721,12 @@ class iOSSimulatorManager:
                 sim_root = f"~/Library/Developer/CoreSimulator/Devices/{udid}/data"
                 sim_root = os.path.expanduser(sim_root)
             
-            # Handle different destination types
-            if device_path.startswith('/'):
-                # Absolute path in simulator
-                if device_path.startswith('/tmp') or device_path.startswith('/var/tmp'):
-                    full_dest_path = os.path.join(sim_root, 'tmp', os.path.basename(local_path))
-                elif device_path.startswith('/Documents'):
-                    full_dest_path = os.path.join(sim_root, 'Documents', os.path.basename(local_path))
-                else:
-                    full_dest_path = os.path.join(sim_root, device_path.lstrip('/'))
-            else:
-                # Relative path, put in tmp
-                full_dest_path = os.path.join(sim_root, 'tmp', device_path)
+            requested_path = device_path if device_path.startswith('/') else f"tmp/{device_path}"
+            success, resolved_path = self._resolve_within_root(sim_root, requested_path)
+            if not success:
+                return False, str(resolved_path)
+
+            full_dest_path = str(resolved_path)
             
             # Create destination directory
             dest_dir = os.path.dirname(full_dest_path)
@@ -783,11 +790,11 @@ class iOSSimulatorManager:
             if not success:
                 return False, f"Could not get app container: {container_path}"
             
-            # Construct full source path
-            if device_path.startswith('/'):
-                device_path = device_path[1:]
-            
-            full_source_path = os.path.join(container_path.strip(), device_path)
+            success, resolved_path = self._resolve_within_root(container_path.strip(), device_path)
+            if not success:
+                return False, str(resolved_path)
+
+            full_source_path = str(resolved_path)
             
             if not os.path.exists(full_source_path):
                 return False, f"File not found: {full_source_path}"
@@ -811,11 +818,12 @@ class iOSSimulatorManager:
             # Get simulator data path
             sim_root = os.path.expanduser(f"~/Library/Developer/CoreSimulator/Devices/{udid}/data")
             
-            # Construct full source path
-            if device_path.startswith('/'):
-                full_source_path = os.path.join(sim_root, device_path.lstrip('/'))
-            else:
-                full_source_path = os.path.join(sim_root, 'tmp', device_path)
+            requested_path = device_path if device_path.startswith('/') else f"tmp/{device_path}"
+            success, resolved_path = self._resolve_within_root(sim_root, requested_path)
+            if not success:
+                return False, str(resolved_path)
+
+            full_source_path = str(resolved_path)
             
             if not os.path.exists(full_source_path):
                 return False, f"File not found: {full_source_path}"
@@ -867,20 +875,22 @@ class iOSSimulatorManager:
         session = self.active_sessions[session_id]
 
         try:
-            # Run the full piped command using shell=True
-            import subprocess
-            
-            full_command = f"xcrun simctl listapps '{session.udid}' | plutil -convert json -o - -- -"
-            
-            result = subprocess.run(
-                full_command,
-                shell=True,
+            plist_result = subprocess.run(
+                ['xcrun', 'simctl', 'listapps', session.udid],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
-            
-            json_output = result.stdout
+
+            json_result = subprocess.run(
+                ['plutil', '-convert', 'json', '-o', '-', '--', '-'],
+                input=plist_result.stdout,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            json_output = json_result.stdout
 
             # Parse the JSON
             try:
@@ -1258,6 +1268,5 @@ class iOSSimulatorManager:
             'installed_apps': {bid: {'name': app.app_name, 'installed_at': app.installed_at} 
                             for bid, app in session.installed_apps.items()}
         }
-
 
 

@@ -12,6 +12,7 @@ from app.services.session_manager import session_manager
 from app.services.recording_service import RecordingService
 from app.models.responses import *
 from app.core.logging import logger
+from app.core.security import ensure_file_bridge_enabled
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -1622,6 +1623,7 @@ async def push_file(
 ):
     """Push a file to the simulator"""
     try:
+        ensure_file_bridge_enabled()
         if not session_manager.get_session(session_id):
             raise HTTPException(status_code=404, detail="Session not found")
         
@@ -1672,6 +1674,7 @@ async def pull_file(
 ):
     """Pull a file from the simulator"""
     try:
+        ensure_file_bridge_enabled()
         if not session_manager.get_session(session_id):
             raise HTTPException(status_code=404, detail="Session not found")
         
@@ -1722,6 +1725,7 @@ async def pull_file(
 async def get_app_container_path(session_id: str, bundle_id: str):
     """Get app container path"""
     try:
+        ensure_file_bridge_enabled()
         if not session_manager.get_session(session_id):
             raise HTTPException(status_code=404, detail="Session not found")
         

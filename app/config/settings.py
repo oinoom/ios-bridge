@@ -1,6 +1,21 @@
 from typing import Optional
 import os
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_token(name: str) -> Optional[str]:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
 class Settings:
     """Application settings"""
     
@@ -33,14 +48,19 @@ class Settings:
     TEXT_TIMEOUT: float = 5.0
     
     # Server Configuration
-    HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    HOST: str = os.getenv("IOS_BRIDGE_HOST", "127.0.0.1")
+    PORT: int = int(os.getenv("IOS_BRIDGE_PORT", "8000"))
+    ACCESS_TOKEN: Optional[str] = _env_token("IOS_BRIDGE_ACCESS_TOKEN")
+    AUTH_COOKIE_NAME: str = "ios_bridge_token"
+    AUTH_HEADER_NAME: str = "x-ios-bridge-token"
+    ENABLE_DEBUG_ROUTES: bool = _env_flag("IOS_BRIDGE_ENABLE_DEBUG_ROUTES", default=False)
+    ENABLE_FILE_BRIDGE: bool = _env_flag("IOS_BRIDGE_ENABLE_FILE_BRIDGE", default=False)
     
     # Paths
     STATIC_DIR: str = "static"
     TEMP_DIR: Optional[str] = None
     
     # Logging
-    LOG_LEVEL: str = "INFO"
+    LOG_LEVEL: str = os.getenv("IOS_BRIDGE_LOG_LEVEL", "INFO")
 
 settings = Settings()

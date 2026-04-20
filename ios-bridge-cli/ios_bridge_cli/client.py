@@ -1,10 +1,11 @@
 """
 iOS Bridge API client for session management and communication
 """
+import os
 import requests
 import json
 from typing import Dict, List, Optional, Any
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from .exceptions import IOSBridgeError, SessionNotFoundError, ConnectionError
 
@@ -12,14 +13,27 @@ from .exceptions import IOSBridgeError, SessionNotFoundError, ConnectionError
 class IOSBridgeClient:
     """Client for communicating with iOS Bridge server"""
     
-    def __init__(self, server_url: str, timeout: int = 10, verbose: bool = False):
+    def __init__(self, server_url: str, timeout: int = 10, verbose: bool = False, access_token: Optional[str] = None):
         self.server_url = server_url.rstrip('/')
         self.timeout = timeout
         self.verbose = verbose
+        self.access_token = access_token or os.getenv("IOS_BRIDGE_ACCESS_TOKEN")
         self.session = requests.Session()
+        if self.access_token:
+            self.session.headers["X-IOS-Bridge-Token"] = self.access_token
         
         # Test connection
         self._test_connection()
+
+    def _with_token(self, url: str) -> str:
+        """Attach the configured access token to a URL."""
+        if not self.access_token:
+            return url
+
+        parsed = urlparse(url)
+        params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        params.setdefault("token", self.access_token)
+        return urlunparse(parsed._replace(query=urlencode(params)))
     
     def _test_connection(self):
         """Test connection to the iOS Bridge server"""
@@ -32,7 +46,7 @@ class IOSBridgeClient:
     
     def _get(self, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Make GET request to the server"""
-        url = urljoin(self.server_url, endpoint.lstrip('/'))
+        url = self._with_token(urljoin(self.server_url, endpoint.lstrip('/')))
         
         try:
             if self.verbose:
@@ -49,7 +63,7 @@ class IOSBridgeClient:
     
     def _post(self, endpoint: str, data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
         """Make POST request to the server"""
-        url = urljoin(self.server_url, endpoint.lstrip('/'))
+        url = self._with_token(urljoin(self.server_url, endpoint.lstrip('/')))
         
         try:
             if self.verbose:
@@ -69,7 +83,7 @@ class IOSBridgeClient:
     
     def _download(self, endpoint: str, output_path: str) -> bool:
         """Download file from server"""
-        url = urljoin(self.server_url, endpoint.lstrip('/'))
+        url = self._with_token(urljoin(self.server_url, endpoint.lstrip('/')))
         
         try:
             if self.verbose:
@@ -147,18 +161,18 @@ class IOSBridgeClient:
     
     def get_webrtc_quality_url(self, session_id: str, quality: str) -> str:
         """Get WebRTC quality control URL"""
-        return f"{self.server_url}/webrtc/quality/{session_id}/{quality}"
+        return self._with_token(f"{self.server_url}/webrtc/quality/{session_id}/{quality}")
     
     def get_websocket_urls(self, session_id: str) -> Dict[str, str]:
         """Get WebSocket URLs for a session"""
         ws_base = self.server_url.replace('http://', 'ws://').replace('https://', 'wss://')
         
         return {
-            'video': f"{ws_base}/ws/{session_id}/video",
-            'control': f"{ws_base}/ws/{session_id}/control", 
-            'webrtc': f"{ws_base}/ws/{session_id}/webrtc",
-            'screenshot': f"{ws_base}/ws/{session_id}/screenshot",
-            'logs': f"{ws_base}/ws/{session_id}/logs"
+            'video': self._with_token(f"{ws_base}/ws/{session_id}/video"),
+            'control': self._with_token(f"{ws_base}/ws/{session_id}/control"),
+            'webrtc': self._with_token(f"{ws_base}/ws/{session_id}/webrtc"),
+            'screenshot': self._with_token(f"{ws_base}/ws/{session_id}/screenshot"),
+            'logs': self._with_token(f"{ws_base}/ws/{session_id}/logs")
         }
     
     def validate_session(self, session_id: str) -> bool:
@@ -196,7 +210,7 @@ class IOSBridgeClient:
             
             # Send as form data to match your API
             response = self.session.post(
-                urljoin(self.server_url, '/api/sessions/create'),
+                self._with_token(urljoin(self.server_url, '/api/sessions/create')),
                 data=data,  # Send as form data, not JSON
                 timeout=self.timeout
             )
@@ -224,7 +238,7 @@ class IOSBridgeClient:
         """Delete/terminate a simulator session"""
         try:
             response = self.session.delete(
-                urljoin(self.server_url, f'/api/sessions/{session_id}'),
+                self._with_token(urljoin(self.server_url, f'/api/sessions/{session_id}')),
                 timeout=self.timeout
             )
             response.raise_for_status()
@@ -259,7 +273,7 @@ class IOSBridgeClient:
                 field_name = 'app_bundle'
             
             endpoint = 'install-and-launch' if launch_after_install else 'install'
-            url = urljoin(self.server_url, f'/api/sessions/{session_id}/apps/{endpoint}')
+            url = self._with_token(urljoin(self.server_url, f'/api/sessions/{session_id}/apps/{endpoint}'))
             
             if self.verbose:
                 print(f"Installing {file_path.name} on session {session_id}...")

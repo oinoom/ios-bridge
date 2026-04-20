@@ -9,6 +9,15 @@ from fastapi.templating import Jinja2Templates
 
 from app.api.websockets.log_handler_ws import handle_log_websocket
 from app.config.settings import settings
+from app.core.security import (
+    auth_enabled,
+    debug_routes_enabled,
+    is_exempt_http_path,
+    request_is_authorized,
+    set_auth_cookie_if_needed,
+    unauthorized_response,
+    websocket_is_authorized,
+)
 from app.core.logging import logger
 from app.services.video_service import VideoService
 from app.services.device_service import DeviceService
@@ -62,8 +71,20 @@ os.makedirs(settings.STATIC_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
 
 # Include routers
-app.include_router(debug.router)
 app.include_router(session_routes.router)
+if debug_routes_enabled():
+    app.include_router(debug.router)
+
+
+@app.middleware("http")
+async def authentication_middleware(request: Request, call_next):
+    if auth_enabled() and not is_exempt_http_path(request.url.path):
+        if not request_is_authorized(request):
+            return unauthorized_response()
+
+    response = await call_next(request)
+    set_auth_cookie_if_needed(response, request.query_params.get("token"))
+    return response
 
 # Initialize WebSocket handlers
 control_ws = ControlWebSocket()
@@ -73,6 +94,10 @@ control_ws = ControlWebSocket()
 async def control_websocket(websocket: WebSocket, session_id: str):
     """Control WebSocket endpoint"""
     try:
+        if auth_enabled() and not websocket_is_authorized(websocket):
+            await websocket.accept()
+            await websocket.close(code=4401, reason="Authentication required")
+            return
         await control_ws.handle_connection(websocket, session_id)
     except WebSocketDisconnect:
         logger.info(f"Control WebSocket disconnected for session: {session_id}")
@@ -83,6 +108,10 @@ async def control_websocket(websocket: WebSocket, session_id: str):
 async def video_websocket(websocket: WebSocket, session_id: str):
     """Video WebSocket endpoint with connection management"""
     try:
+        if auth_enabled() and not websocket_is_authorized(websocket):
+            await websocket.accept()
+            await websocket.close(code=4401, reason="Authentication required")
+            return
         # Validate session exists first
         udid = session_manager.get_session_udid(session_id)
         if not udid:
@@ -117,6 +146,10 @@ async def video_websocket(websocket: WebSocket, session_id: str):
 async def webrtc_websocket(websocket: WebSocket, session_id: str):
     """WebRTC WebSocket endpoint with connection management"""
     try:
+        if auth_enabled() and not websocket_is_authorized(websocket):
+            await websocket.accept()
+            await websocket.close(code=4401, reason="Authentication required")
+            return
         # Validate session exists first
         udid = session_manager.get_session_udid(session_id)
         if not udid:
@@ -149,6 +182,10 @@ async def webrtc_websocket(websocket: WebSocket, session_id: str):
 async def screenshot_websocket(websocket: WebSocket, session_id: str):
     """Screenshot WebSocket endpoint"""
     try:
+        if auth_enabled() and not websocket_is_authorized(websocket):
+            await websocket.accept()
+            await websocket.close(code=4401, reason="Authentication required")
+            return
         # Validate session exists first
         udid = session_manager.get_session_udid(session_id)
         if not udid:
@@ -175,6 +212,10 @@ async def screenshot_websocket(websocket: WebSocket, session_id: str):
 async def logs_websocket(websocket: WebSocket, session_id: str):
     """Logs WebSocket endpoint"""
     try:
+        if auth_enabled() and not websocket_is_authorized(websocket):
+            await websocket.accept()
+            await websocket.close(code=4401, reason="Authentication required")
+            return
         await handle_log_websocket(websocket, session_id)
     except WebSocketDisconnect:
         logger.info(f"Logs WebSocket disconnected for session: {session_id}")

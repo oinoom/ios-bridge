@@ -19,6 +19,13 @@ import tarfile
 from .exceptions import ElectronAppError
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class ElectronAppManager:
     """Manages the Electron desktop application with auto-download functionality"""
     
@@ -45,6 +52,7 @@ class ElectronAppManager:
     def __init__(self, verbose: bool = False, dev_mode: bool = False):
         self.verbose = verbose
         self.dev_mode = dev_mode  # Use bundled app for development
+        self.allow_downloaded_desktop = _env_flag("IOS_BRIDGE_ALLOW_ELECTRON_DOWNLOAD", default=False)
         self.process: Optional[subprocess.Popen] = None
         self.config_file: Optional[str] = None
         self.app_cache_dir = self._get_cache_dir()
@@ -425,6 +433,12 @@ class ElectronAppManager:
     def _ensure_app_exists(self):
         """Ensure the Electron app exists, download if necessary"""
         if not self._app_exists_and_valid():
+            if not self.allow_downloaded_desktop:
+                raise ElectronAppError(
+                    "Auto-downloading and executing prebuilt desktop binaries is disabled in this hardened fork. "
+                    "Use the web interface, the bundled development app, or set IOS_BRIDGE_ALLOW_ELECTRON_DOWNLOAD=1 to opt in."
+                )
+
             if self.verbose:
                 print("🔍 iOS Bridge Desktop not found or outdated")
             self._download_app()

@@ -4,6 +4,7 @@ Main CLI interface for iOS Bridge CLI tool
 import click
 import sys
 import os
+import secrets
 import signal
 import time
 import subprocess
@@ -46,11 +47,16 @@ class CLIContext:
                     server_url = f"http://{self.client.host}:{self.client.port}"
                 
                 if server_url:
+                    headers = {'Content-Type': 'application/json'}
+                    access_token = getattr(self.client, 'access_token', None)
+                    if access_token:
+                        headers['X-IOS-Bridge-Token'] = access_token
+
                     # Call cleanup endpoint with timeout
                     response = requests.post(
                         f"{server_url}/api/sessions/cleanup-recordings",
                         timeout=3,  # Reduced timeout for faster exit
-                        headers={'Content-Type': 'application/json'}
+                        headers=headers
                     )
                     
                     if response.status_code == 200:
@@ -139,15 +145,37 @@ def load_default_server():
     return 'http://localhost:8000'
 
 
+def load_default_access_token():
+    """Load default access token from config file when present."""
+    try:
+        config_file = Path.home() / '.ios-bridge-cli' / 'config.json'
+        if config_file.exists():
+            import json
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                return config.get('default_access_token')
+    except Exception:
+        pass
+    return os.getenv("IOS_BRIDGE_ACCESS_TOKEN")
+
+
+def is_loopback_binding(host: str) -> bool:
+    normalized = (host or "").strip().lower()
+    return normalized in {"127.0.0.1", "::1", "localhost"}
+
+
 @click.group()
 @click.option('--server', '-s', 
               default=None,
               help='iOS Bridge server URL (overrides saved default)')
+@click.option('--access-token',
+              default=load_default_access_token,
+              help='Shared access token for hardened servers (defaults to IOS_BRIDGE_ACCESS_TOKEN)')
 @click.option('--verbose', '-v', 
               is_flag=True, 
               help='Enable verbose output')
 @click.pass_context
-def cli(ctx, server: str, verbose: bool):
+def cli(ctx, server: str, access_token: str, verbose: bool):
     """iOS Bridge CLI - Desktop streaming client for iOS simulators
     
     Works on all platforms:
@@ -165,6 +193,7 @@ def cli(ctx, server: str, verbose: bool):
         server = load_default_server()
     
     ctx.obj['server'] = server
+    ctx.obj['access_token'] = access_token
     ctx.obj['verbose'] = verbose
     
     # Show platform-specific info
@@ -183,8 +212,9 @@ def get_client(ctx):
     """Get or create the IOSBridge client"""
     if not cli_context.client:
         server = ctx.obj['server']
+        access_token = ctx.obj.get('access_token')
         verbose = ctx.obj['verbose']
-        cli_context.client = IOSBridgeClient(server, verbose=verbose)
+        cli_context.client = IOSBridgeClient(server, verbose=verbose, access_token=access_token)
         
         if verbose:
             click.echo(f"🔗 Connecting to iOS Bridge server: {server}")
@@ -979,21 +1009,26 @@ def install_app(ctx, app_path: str, session_id: str, launch: bool, force: bool):
               default=8000,
               help='Port to run the server on')
 @click.option('--host',
-              default='0.0.0.0',
+              default='127.0.0.1',
               help='Host to bind the server to')
+@click.option('--access-token',
+              default=None,
+              help='Shared token for LAN exposure. Auto-generated when binding beyond localhost.')
 @click.option('--server-path',
               help='Path to iOS Bridge server directory (auto-detected if not specified)')
 @click.option('--background', '-b',
               is_flag=True,
               help='Run server in background')
 @click.pass_context
-def start_server(ctx, port: int, host: str, server_path: str, background: bool):
+def start_server(ctx, port: int, host: str, access_token: str, server_path: str, background: bool):
     """Start the iOS Bridge server (macOS only)"""
     
     check_server_command_available()
     verbose = ctx.obj['verbose']
     
     try:
+        display_host = "<your-mac-ip>" if host == "0.0.0.0" else host
+
         # Find server directory
         if server_path:
             server_dir = Path(server_path)
@@ -1018,6 +1053,12 @@ def start_server(ctx, port: int, host: str, server_path: str, background: bool):
         if verbose:
             click.echo(f"📁 Server directory: {server_dir}")
             click.echo(f"🚀 Starting server on {host}:{port}")
+
+        if not is_loopback_binding(host) and not access_token:
+            access_token = secrets.token_urlsafe(24)
+            click.echo("🔐 Generated a shared access token because the server is binding beyond localhost.")
+            click.echo(f"   Token: {access_token}")
+            click.echo(f"   Open from another device with: http://<your-mac-ip>:{port}/web?token={access_token}")
         
         # Check if server is already running
         existing_processes = get_server_processes()
@@ -1033,6 +1074,10 @@ def start_server(ctx, port: int, host: str, server_path: str, background: bool):
         
         # Prepare environment
         env = os.environ.copy()
+        env["IOS_BRIDGE_HOST"] = host
+        env["IOS_BRIDGE_PORT"] = str(port)
+        if access_token:
+            env["IOS_BRIDGE_ACCESS_TOKEN"] = access_token
         
         # Build command
         cmd = [
@@ -1041,6 +1086,8 @@ def start_server(ctx, port: int, host: str, server_path: str, background: bool):
             "--host", host,
             "--port", str(port)
         ]
+        if access_token:
+            cmd.extend(["--access-token", access_token])
         
         if background:
             # Run in background
@@ -1058,14 +1105,20 @@ def start_server(ctx, port: int, host: str, server_path: str, background: bool):
             
             if process.poll() is None:
                 click.echo(f"✅ Server started in background (PID: {process.pid})")
-                click.echo(f"🌐 Server URL: http://localhost:{port}")
+                if access_token:
+                    click.echo(f"🌐 Protected server URL: http://{display_host}:{port}/web?token={access_token}")
+                else:
+                    click.echo(f"🌐 Server URL: http://{display_host}:{port}")
                 click.echo(f"📋 To stop: ios-bridge kill-server")
             else:
                 click.echo("❌ Server failed to start in background", err=True)
                 sys.exit(1)
         else:
             # Run in foreground
-            click.echo(f"🌐 Server will be available at: http://localhost:{port}")
+            if access_token:
+                click.echo(f"🌐 Protected server will be available at: http://{display_host}:{port}/web?token={access_token}")
+            else:
+                click.echo(f"🌐 Server will be available at: http://{display_host}:{port}")
             click.echo("📋 Press Ctrl+C to stop the server")
             
             try:
@@ -1222,7 +1275,11 @@ def server_status(ctx):
         # Test HTTP connection
         click.echo(f"\n🌐 Testing connection to {server_url}...")
         try:
-            client = IOSBridgeClient(server_url, verbose=False)
+            client = IOSBridgeClient(
+                server_url,
+                verbose=False,
+                access_token=ctx.obj.get('access_token'),
+            )
             # The client constructor tests the connection
             click.echo("✅ Server is responding to HTTP requests")
             
@@ -1263,6 +1320,7 @@ def connect(ctx, server_url: str, save: bool):
     """Connect to a remote iOS Bridge server"""
     
     verbose = ctx.obj['verbose']
+    access_token = ctx.obj.get('access_token')
     
     try:
         # Validate and normalize URL
@@ -1272,7 +1330,7 @@ def connect(ctx, server_url: str, save: bool):
         click.echo(f"🌐 Connecting to remote iOS Bridge server: {server_url}")
         
         # Test connection
-        client = IOSBridgeClient(server_url, verbose=verbose)
+        client = IOSBridgeClient(server_url, verbose=verbose, access_token=access_token)
         
         # Get server information
         configurations = client.get_configurations()
@@ -1289,6 +1347,8 @@ def connect(ctx, server_url: str, save: bool):
             config_file = config_dir / 'config.json'
             
             config = {'default_server': server_url}
+            if access_token:
+                config['default_access_token'] = access_token
             
             import json
             with open(config_file, 'w') as f:
@@ -1298,9 +1358,10 @@ def connect(ctx, server_url: str, save: bool):
             click.echo(f"📋 Config saved to: {config_file}")
         
         click.echo(f"\n🚀 You can now use all commands with this server:")
-        click.echo(f"   ios-bridge --server {server_url} devices")
-        click.echo(f"   ios-bridge --server {server_url} create \"iPhone 14 Pro\" \"18.2\"")
-        click.echo(f"   ios-bridge --server {server_url} stream <session_id>")
+        token_hint = " --access-token <token>" if not access_token else ""
+        click.echo(f"   ios-bridge --server {server_url}{token_hint} devices")
+        click.echo(f"   ios-bridge --server {server_url}{token_hint} create \"iPhone 14 Pro\" \"18.2\"")
+        click.echo(f"   ios-bridge --server {server_url}{token_hint} stream <session_id>")
         
         if save:
             click.echo(f"\n💡 Since you saved it as default, you can also use:")
