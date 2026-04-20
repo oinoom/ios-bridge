@@ -1672,7 +1672,10 @@
         function getDisplayMetrics(aspectRatio) {
             const screenContainer = document.querySelector('.screen-container');
             const containerWidth = Math.max((screenContainer?.clientWidth || 0) - 4, 0);
-            const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+            const rawDevicePixelRatio = window.devicePixelRatio || 1;
+            const devicePixelRatio = simulatorFocused
+                ? 1
+                : Math.min(rawDevicePixelRatio, 2);
             const widthCap = simulatorFocused ? Math.min(window.innerWidth - 24, 960) : 400;
             const heightRatio = simulatorFocused ? 0.82 : 0.6;
 
@@ -1748,6 +1751,42 @@
             }
         }
 
+        function clamp(value, min, max) {
+            return Math.min(Math.max(value, min), max);
+        }
+
+        function amplifyFocusedSwipe(target, startX, startY, endX, endY) {
+            if (!simulatorFocused) {
+                return { startX, startY, endX, endY };
+            }
+
+            const rect = target.getBoundingClientRect();
+            const deltaX = endX - startX;
+            const deltaY = endY - startY;
+            const mostlyVertical = Math.abs(deltaY) >= Math.abs(deltaX);
+            const multiplier = mostlyVertical ? 1.85 : 1.45;
+
+            return {
+                startX,
+                startY,
+                endX: clamp(startX + (deltaX * multiplier), 0, rect.width),
+                endY: clamp(startY + (deltaY * multiplier), 0, rect.height),
+            };
+        }
+
+        function getSwipeDuration(meta) {
+            if (!meta?.isTouch) {
+                return 0.18;
+            }
+
+            const baseDuration = simulatorFocused ? 0.1 : 0.14;
+            if (!meta.distance) {
+                return baseDuration;
+            }
+
+            return clamp(meta.distance / 1600, baseDuration, 0.18);
+        }
+
         function attachTouchSurface(target, tapHandler, swipeHandler) {
             if (!target) {
                 return;
@@ -1818,7 +1857,25 @@
                 if (distance < 10 && duration < 350) {
                     tapHandler(point.x, point.y);
                 } else {
-                    swipeHandler(activeTouchGesture.startX, activeTouchGesture.startY, point.x, point.y);
+                    const adjustedSwipe = amplifyFocusedSwipe(
+                        target,
+                        activeTouchGesture.startX,
+                        activeTouchGesture.startY,
+                        point.x,
+                        point.y
+                    );
+
+                    swipeHandler(
+                        adjustedSwipe.startX,
+                        adjustedSwipe.startY,
+                        adjustedSwipe.endX,
+                        adjustedSwipe.endY,
+                        {
+                            distance,
+                            duration,
+                            isTouch: true,
+                        }
+                    );
                 }
 
                 activeTouchGesture = null;
@@ -2561,8 +2618,8 @@
             }
 
             // Optimized rendering
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
+            ctx.imageSmoothingEnabled = !simulatorFocused;
+            ctx.imageSmoothingQuality = simulatorFocused ? 'low' : 'high';
             ctx.clearRect(0, 0, displayWidth, displayHeight);
             ctx.drawImage(img, 0, 0, displayWidth, displayHeight);
 
@@ -2664,7 +2721,7 @@
             }
         }
 
-        function handleSwipe(startX, startY, endX, endY) {
+        function handleSwipe(startX, startY, endX, endY, meta = {}) {
             if (pointWidth > 0 && pointHeight > 0) {
                 const displayWidth = parseInt(canvas.style.width);
                 const displayHeight = parseInt(canvas.style.height);
@@ -2682,7 +2739,7 @@
                     start_y: startPointY,
                     end_x: endPointX,
                     end_y: endPointY,
-                    duration: 0.3
+                    duration: getSwipeDuration(meta)
                 };
 
                 if (currentMode === 'screenshot' && screenshotWs) {
@@ -3209,7 +3266,7 @@
             }
         }
 
-        function handleWebRTCSwipe(startX, startY, endX, endY) {
+        function handleWebRTCSwipe(startX, startY, endX, endY, meta = {}) {
             if (pointWidth > 0 && pointHeight > 0) {
                 const rect = webrtcVideo.getBoundingClientRect();
                 const displayWidth = rect.width;
@@ -3228,7 +3285,7 @@
                     start_y: startPointY,
                     end_x: endPointX,
                     end_y: endPointY,
-                    duration: 0.3
+                    duration: getSwipeDuration(meta)
                 };
 
                 // Always use control WebSocket for swipes in WebRTC mode

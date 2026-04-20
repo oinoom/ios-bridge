@@ -26,6 +26,8 @@ class Settings:
     DEFAULT_VIDEO_FPS: int = 60
     VIDEO_QUEUE_SIZE: int = 3
     WEBRTC_QUEUE_SIZE: int = 2
+    AVFOUNDATION_VIDEO_INPUT: str = os.getenv("IOS_BRIDGE_AVFOUNDATION_VIDEO_INPUT", "0:none")
+    ENABLE_FFMPEG_VIDEO: bool = _env_flag("IOS_BRIDGE_ENABLE_FFMPEG_VIDEO", default=False)
     
     # Connection Management
     MAX_CONNECTIONS_PER_SESSION: int = 10

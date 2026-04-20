@@ -1,10 +1,26 @@
 import argparse
 import os
 import sys
+from pathlib import Path
 
 
 # Add the current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+def configure_runtime_environment() -> None:
+    path_entries = os.environ.get("PATH", "").split(os.pathsep) if os.environ.get("PATH") else []
+    python_bin_dir = str(Path(sys.executable).parent)
+    if python_bin_dir not in path_entries:
+        path_entries.insert(0, python_bin_dir)
+    for candidate in ("/opt/homebrew/bin", "/usr/local/bin"):
+        if candidate not in path_entries and Path(candidate).exists():
+            path_entries.insert(0, candidate)
+    os.environ["PATH"] = os.pathsep.join(path_entries)
+
+    developer_dir = Path("/Applications/Xcode.app/Contents/Developer")
+    if "DEVELOPER_DIR" not in os.environ and developer_dir.exists():
+        os.environ["DEVELOPER_DIR"] = str(developer_dir)
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,6 +43,7 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
+    configure_runtime_environment()
 
     if args.host:
         os.environ["IOS_BRIDGE_HOST"] = args.host

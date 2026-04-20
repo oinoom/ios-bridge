@@ -41,16 +41,50 @@ class VideoService:
             
             logger.info(f"Starting video capture for UDID: {self.udid}")
             
-            # Try different capture methods
-            if self._try_idb_video_stream():
-                return True
-            elif self._try_ffmpeg_hardware_capture():
-                return True
-            elif self._try_ffmpeg_software_capture():
+            # This fork defaults to the simpler screenshot stream because it is
+            # the most reliable path across local machines. FFmpeg is still
+            # available as an opt-in if it proves faster on a specific host.
+            if settings.ENABLE_FFMPEG_VIDEO and self._try_ffmpeg_software_capture():
                 return True
             else:
                 # Fallback to screenshot mode
                 return self._start_screenshot_mode()
+
+    def _await_initial_frame(self, timeout: float = 1.5) -> bool:
+        """Return True when the queue receives at least one frame."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not self.video_streaming_active:
+                return False
+            if self.video_frame_queue.qsize() > 0:
+                return True
+            time.sleep(0.05)
+        return False
+
+    def _reset_failed_capture(self):
+        """Tear down a capture path that started but never produced frames."""
+        self.video_streaming_active = False
+
+        if self.video_capture_process:
+            try:
+                self.video_capture_process.terminate()
+                self.video_capture_process.wait(timeout=1)
+            except Exception:
+                try:
+                    self.video_capture_process.kill()
+                except Exception:
+                    pass
+            self.video_capture_process = None
+
+        if self.video_capture_thread:
+            self.video_capture_thread.join(timeout=1)
+            self.video_capture_thread = None
+
+        while not self.video_frame_queue.empty():
+            try:
+                self.video_frame_queue.get_nowait()
+            except Empty:
+                break
     
     def _try_idb_video_stream(self) -> bool:
         """Try idb video-stream"""
@@ -99,7 +133,7 @@ class VideoService:
                 "-capture_mouse_clicks", "0",
                 "-pixel_format", "uyvy422",
                 "-framerate", "60",
-                "-i", "1:none",
+                "-i", settings.AVFOUNDATION_VIDEO_INPUT,
                 "-vf", f"crop={window_info['width']}:{window_info['height']}:{window_info['x']}:{window_info['y']}",
                 "-c:v", "h264_videotoolbox",
                 "-profile:v", "baseline",
@@ -148,15 +182,12 @@ class VideoService:
                 "-f", "avfoundation",
                 "-capture_cursor", "0",
                 "-framerate", "30",
-                "-i", "1:none",
+                "-i", settings.AVFOUNDATION_VIDEO_INPUT,
                 "-vf", f"crop={window_info['width']}:{window_info['height']}:{window_info['x']}:{window_info['y']},scale=390:844",
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-tune", "zerolatency",
-                "-crf", "23",
-                "-g", "15",
+                "-an",
+                "-c:v", "mjpeg",
                 "-f", "mjpeg",
-                "-q:v", "3",
+                "-q:v", "6",
                 "-"
             ]
             
@@ -171,8 +202,12 @@ class VideoService:
                     target=self._process_mjpeg_stream, daemon=True
                 )
                 self.video_capture_thread.start()
-                logger.info(f"✅ FFmpeg software capture started for {self.udid}")
-                return True
+                if self._await_initial_frame():
+                    logger.info(f"✅ FFmpeg software capture started for {self.udid}")
+                    return True
+
+                logger.warning(f"❌ FFmpeg software capture produced no frames for {self.udid}")
+                self._reset_failed_capture()
             else:
                 stderr = self.video_capture_process.stderr.read().decode()
                 logger.warning(f"❌ FFmpeg software capture failed for {self.udid}: {stderr}")
