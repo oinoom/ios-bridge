@@ -1,4 +1,14 @@
 // iOS Simulator Device Logs Manager
+function buildLogsWebSocketUrl(sessionId) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = new URL(`${protocol}//${window.location.host}/ws/${sessionId}/logs`);
+    const token = new URLSearchParams(window.location.search).get('token');
+    if (token) {
+        url.searchParams.set('token', token);
+    }
+    return url.toString();
+}
+
 class DeviceLogsManager {
     constructor(sessionId) {
         this.sessionId = sessionId;
@@ -116,8 +126,7 @@ class DeviceLogsManager {
             this.elements.logContent.innerHTML = '<div class="log-placeholder">🔄 Connecting to log stream...</div>';
 
             // Create WebSocket connection
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/${this.sessionId}/logs`;
+            const wsUrl = buildLogsWebSocketUrl(this.sessionId);
 
             this.logWs = new WebSocket(wsUrl);
 
@@ -512,8 +521,7 @@ function toggleAutoScroll() {
 
 function testWebSocketConnection() {
     console.log('Testing WebSocket connection to logs endpoint');
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/${SESSION_ID}/logs`;
+    const wsUrl = buildLogsWebSocketUrl(SESSION_ID);
 
     console.log('WebSocket URL:', wsUrl);
 

@@ -1680,6 +1680,16 @@
     <script>
         // Pass session_id to JavaScript
         const SESSION_ID = '{{ session_id }}';
+        const AUTH_TOKEN = new URLSearchParams(window.location.search).get('token');
+
+        function buildWebSocketUrl(path) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = new URL(`${protocol}//${window.location.host}${path}`);
+            if (AUTH_TOKEN) {
+                url.searchParams.set('token', AUTH_TOKEN);
+            }
+            return url.toString();
+        }
 
         const canvas = document.getElementById('screen');
         const ctx = canvas.getContext('2d');
@@ -1946,8 +1956,7 @@
 
         function testWebSocketConnection() {
             console.log('Testing WebSocket connection to logs endpoint');
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/${SESSION_ID}/logs`;
+            const wsUrl = buildWebSocketUrl(`/ws/${SESSION_ID}/logs`);
 
             console.log('WebSocket URL:', wsUrl);
 
@@ -2307,7 +2316,7 @@
 
 
         function setupControlWebSocket() {
-            controlWs = new WebSocket(`ws://${location.hostname}:8000/ws/${SESSION_ID}/control`);
+            controlWs = new WebSocket(buildWebSocketUrl(`/ws/${SESSION_ID}/control`));
 
             controlWs.onopen = () => {
                 console.log('Control WebSocket connected');
@@ -2381,7 +2390,7 @@
         }
 
         function setupHighPerformanceVideoStream() {
-            videoWs = new WebSocket(`ws://${location.hostname}:8000/ws/${SESSION_ID}/video`);
+            videoWs = new WebSocket(buildWebSocketUrl(`/ws/${SESSION_ID}/video`));
 
             videoWs.onopen = () => {
                 console.log('Hardware-accelerated video WebSocket connected');
@@ -2521,7 +2530,7 @@
         }, 5000);
 
         function setupScreenshotMode() {
-            screenshotWs = new WebSocket(`ws://${location.hostname}:8000/ws/${SESSION_ID}/screenshot`);
+            screenshotWs = new WebSocket(buildWebSocketUrl(`/ws/${SESSION_ID}/screenshot`));
 
             screenshotWs.onopen = () => {
                 console.log('Screenshot WebSocket connected');
@@ -2912,7 +2921,7 @@
                 };
 
                 // Set up signaling WebSocket
-                webrtcWs = new WebSocket(`ws://${location.hostname}:8000/ws/${SESSION_ID}/webrtc`);
+                webrtcWs = new WebSocket(buildWebSocketUrl(`/ws/${SESSION_ID}/webrtc`));
 
                 webrtcWs.onopen = async () => {
                     console.log('📡 WebRTC signaling connected');
