@@ -21,13 +21,15 @@
 
         .simulator-section {
             flex-shrink: 0;
-            min-width: 400px;
+            width: 100%;
+            min-width: 0;
             max-width: 500px;
         }
 
         .controls-panel {
             flex: 1;
-            min-width: 400px;
+            width: 100%;
+            min-width: 0;
             max-width: 600px;
             display: flex;
             flex-direction: column;
@@ -84,6 +86,56 @@
         .disconnected {
             background-color: #f8d7da;
             border: 1px solid #f5c6cb;
+        }
+
+        .simulator-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0 12px;
+            flex-wrap: wrap;
+        }
+
+        .simulator-toolbar .btn-secondary {
+            padding: 8px 12px;
+            font-size: 12px;
+        }
+
+        .simulator-toolbar .focus-primary {
+            background: #1f2937;
+        }
+
+        .simulator-toolbar .focus-primary:hover {
+            background: #111827;
+        }
+
+        .simulator-toolbar-copy {
+            font-size: 12px;
+            color: #666;
+        }
+
+        body.simulator-focused {
+            margin: 12px;
+        }
+
+        body.simulator-focused .title-section,
+        body.simulator-focused .controls-panel {
+            display: none;
+        }
+
+        body.simulator-focused .main-container {
+            display: block;
+            min-height: auto;
+        }
+
+        body.simulator-focused .simulator-section {
+            max-width: none;
+            width: 100%;
+        }
+
+        body.simulator-focused #container {
+            padding: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
         }
 
         .controls-section {
@@ -1252,7 +1304,6 @@
         }
     </style>
     <script src="/static/js/logs.js" onerror="console.error('Failed to load logs.js')"></script>
-    <script src="/static/js/location.js" onerror="console.error('Failed to load location.js')"></script>
     <script src="/static/js/media_transfer.js" onerror="console.error('Failed to load media_transfer.js')"></script>
 
 </head>
@@ -1261,13 +1312,18 @@
     <div class="title-section">
         <h1>🎮 iOS Simulator Control - {{ session_info.device_type }} (iOS {{ session_info.ios_version }})</h1>
         <p>Session: {{ session_id[:8] }} | UDID: {{ session_info.udid[:8] }}</p>
-        <a href="/web" style="color: #007bff; text-decoration: none;">← Back to Sessions</a>
+        <a href="/web{% if request.query_params.get('token') %}?token={{ request.query_params.get('token') }}{% endif %}" style="color: #007bff; text-decoration: none;">← Back to Sessions</a>
     </div>
 
     <div class="main-container">
         <!-- Simulator Section -->
         <div class="simulator-section">
             <div id="status" class="disconnected">Connecting...</div>
+
+            <div class="simulator-toolbar">
+                <button id="focusToggleBtn" class="btn-secondary focus-primary" onclick="toggleSimulatorFocus()">⤢ Focus Simulator</button>
+                <div id="focusHelperText" class="simulator-toolbar-copy">Hide the side panel and enlarge the simulator for phone use.</div>
+            </div>
 
             <div id="container">
                 <div class="screen-container">
@@ -1281,27 +1337,6 @@
                         <div id="qualityInfo"></div>
                         <div id="latencyInfo"></div>
                     </div>
-                </div>
-            </div>
-
-            <!-- Device Controls Section -->
-            <div class="device-controls">
-                <h4>📱 Device Controls</h4>
-                <div class="device-controls-grid">
-                    <button class="device-control-btn" onclick="takeDeviceScreenshot()" id="screenshotBtn">
-                        <span class="icon">📸</span>
-                        <span class="label">Screenshot</span>
-                    </button>
-
-                    <button class="device-control-btn" onclick="pressHomeButton()" id="homeBtn">
-                        <span class="icon">🏠</span>
-                        <span class="label">Home Button</span>
-                    </button>
-
-                    <button class="device-control-btn" onclick="toggleOrientation()" id="orientationBtn">
-                        <span class="icon">🔄</span>
-                        <span class="label">Portrait</span>
-                    </button>
                 </div>
             </div>
         </div>
@@ -1449,16 +1484,6 @@
                         <small>Pull any file from simulator to download</small>
                     </div>
 
-                    <!-- Quick Actions -->
-                    <div class="media-group">
-                        <h4>⚡ Quick Actions</h4>
-                        <div class="quick-actions">
-                            <button onclick="fillCommonPath('/Documents/')" class="quick-btn">📄 Documents</button>
-                            <button onclick="fillCommonPath('/Library/')" class="quick-btn">📚 Library</button>
-                            <button onclick="fillCommonPath('/tmp/')" class="quick-btn">🗂️ Temp</button>
-                            <button onclick="getAppContainer()" class="quick-btn">📱 App Container</button>
-                        </div>
-                    </div>
                 </div>
             </div>
             <div class="controls-section">
@@ -1500,85 +1525,6 @@
                 </div>
             </div>
 
-            <div class="controls-section">
-                <h3>⌨️ Text Input</h3>
-                <div class="text-input-section">
-                    <input type="text" id="textInput" placeholder="Enter text to type..." maxlength="200">
-                    <button onclick="sendText()">📤 Send</button>
-                    <button onclick="clearText()">🗑️ Clear</button>
-                </div>
-            </div>
-
-
-            <div class="controls-section gesture-buttons">
-                <h3>👆 Gesture Controls</h3>
-                <div class="controls-grid-wide">
-                    <button id="swipeToggle" onclick="toggleSwipeMode()">✋ Enable Swipe Mode</button>
-                </div>
-
-                <br>
-
-                <div class="controls-grid">
-                    <button onclick="quickSwipe('up')">⬆️ Up</button>
-                    <button onclick="quickSwipe('down')">⬇️ Down</button>
-                    <button onclick="quickSwipe('left')">⬅️ Left</button>
-                    <button onclick="quickSwipe('right')">➡️ Right</button>
-                </div>
-            </div>
-
-            <!-- Replace the existing location section with this simplified version -->
-
-            <div class="controls-section">
-                <h3 onclick="toggleLocationSection()" style="cursor: pointer;">
-                    📍 Mock Location
-                    <span id="locationToggleIcon" class="section-toggle-icon">▼</span>
-                </h3>
-
-                <div id="locationSection" class="location-section">
-                    <!-- Current Location Display -->
-                    <div class="current-location">
-                        <div class="location-status" id="locationStatus">
-                            <span id="currentLocationText">No location set</span>
-                            <button onclick="clearLocation()" id="clearLocationBtn" class="btn-secondary"
-                                style="display: none;">Clear</button>
-                        </div>
-                    </div>
-
-                    <!-- Location Input -->
-                    <div class="location-controls">
-                        <div class="location-input-row">
-                            <div class="coordinate-input">
-                                <label for="latitudeInput">Latitude:</label>
-                                <input type="number" id="latitudeInput" placeholder="37.7749" step="any" min="-90"
-                                    max="90">
-                            </div>
-                            <div class="coordinate-input">
-                                <label for="longitudeInput">Longitude:</label>
-                                <input type="number" id="longitudeInput" placeholder="-122.4194" step="any" min="-180"
-                                    max="180">
-                            </div>
-                            <button onclick="setCustomLocation()" class="btn-primary">📍 Set Location</button>
-                            <button onclick="getCurrentCoordinates()" class="btn-secondary">📱 Current</button>
-                        </div>
-
-                        <!-- Location Name Display -->
-                        <div id="locationNameDisplay" class="location-name-display" style="display: none;">
-                            <span id="locationNameText"></span>
-                        </div>
-                    </div>
-
-                    <!-- Predefined Locations (Collapsible) -->
-                    <div class="predefined-locations">
-                        <h4 onclick="togglePredefinedLocations()" style="cursor: pointer;">
-                            🌍 Predefined Locations
-                            <span id="predefinedToggleIcon" class="predefined-toggle-icon">▼</span>
-                        </h4>
-                        <div id="predefinedLocationsList" class="predefined-locations-list">
-                            <div class="predefined-loading">Loading locations...</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
             <div class="controls-section">
                 <h3 onclick="toggleLogsSection()" style="cursor: pointer;">
                     📋 Device Logs
@@ -1634,46 +1580,6 @@
                     </div>
                 </div>
             </div>
-            <div class="controls-section system-controls">
-                <h3>🎮 System Controls</h3>
-                <div class="controls-grid">
-                    <button onclick="restartPipeline()">🔄 Restart</button>
-                    <button onclick="checkStatus()">📊 Status</button>
-                    <button onclick="takeScreenshot()">🔄 Refresh</button>
-                    <button onclick="testTap()">🎯 Test Tap</button>
-                </div>
-            </div>
-
-            <div class="controls-section hardware-buttons">
-                <h3>🔘 Hardware Buttons</h3>
-                <div class="controls-grid">
-                    <button onclick="pressButton('home')">🏠 Home</button>
-                    <button onclick="pressButton('lock')">🔒 Lock</button>
-                    <button onclick="pressButton('siri')">🎤 Siri</button>
-                    <button onclick="pressButton('side-button')">📱 Side</button>
-                    <button onclick="pressButton('apple-pay')">💳 Pay</button>
-                    <button onclick="pressVolumeButton('up')">🔊 Vol+</button>
-                    <button onclick="pressVolumeButton('down')">🔉 Vol-</button>
-                    <button onclick="pressShakeButton()">📳 Shake</button>
-                </div>
-            </div>
-
-
-
-            <div class="controls-section">
-                <h3>⌨️ Keyboard Shortcuts</h3>
-                <div style="font-size: 11px; color: #666; line-height: 1.4;">
-                    <strong>W</strong>=WebRTC, <strong>V</strong>=Video, <strong>C</strong>=Screenshot<br>
-                    <strong>H</strong>=Home, <strong>L</strong>=Lock, <strong>S</strong>=Siri,
-                    <strong>P</strong>=Pay<br>
-                    <strong>+/-</strong>=Volume, <strong>K</strong>=Shake, <strong>Space</strong>=Toggle Swipe<br>
-                    <strong>Arrow Keys</strong>=Quick Swipes, <strong>Enter</strong>=Send Text<br>
-                    <strong>U</strong>=Focus URL Input, <strong>A</strong>=Toggle Apps List<br>
-                    <strong>X</strong>=Screenshot, <strong>R</strong>=Rotate, <strong>Home</strong>=Home Button<br>
-                    <strong>G</strong>=Toggle Logs, <strong>L</strong>=Toggle Location, <strong>Escape</strong>=Stop Log
-                    Stream
-                </div>
-            </div>
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -1700,6 +1606,8 @@
         const qualityInfo = document.getElementById('qualityInfo');
         const latencyInfo = document.getElementById('latencyInfo');
         const webrtcVideo = document.getElementById('webrtc-video');
+        const focusToggleBtn = document.getElementById('focusToggleBtn');
+        const focusHelperText = document.getElementById('focusHelperText');
         let currentWebRTCQuality = 'high';
 
         let currentMode = 'video';
@@ -1746,8 +1654,78 @@
 
         let currentOrientation = 'portrait'; // 'portrait' or 'landscape'
         let isCapturingScreenshot = false;
+        let simulatorFocused = false;
 
         window.deviceLogsManager = null;
+
+        function getDisplayMetrics(aspectRatio) {
+            const screenContainer = document.querySelector('.screen-container');
+            const containerWidth = Math.max((screenContainer?.clientWidth || 0) - 4, 0);
+            const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+            const widthCap = simulatorFocused ? Math.min(window.innerWidth - 24, 960) : 400;
+            const heightRatio = simulatorFocused ? 0.82 : 0.6;
+
+            let displayWidth = Math.min(containerWidth || widthCap, widthCap);
+            let displayHeight = displayWidth / aspectRatio;
+
+            const maxHeight = window.innerHeight * heightRatio;
+            if (displayHeight > maxHeight) {
+                displayHeight = maxHeight;
+                displayWidth = displayHeight * aspectRatio;
+            }
+
+            return {
+                displayWidth: Math.round(displayWidth),
+                displayHeight: Math.round(displayHeight),
+                devicePixelRatio,
+            };
+        }
+
+        function refreshCanvasFrame() {
+            if (!pixelWidth || !pixelHeight || !canvas.width || !canvas.height) {
+                return;
+            }
+
+            const snapshot = new Image();
+            snapshot.onload = () => {
+                const aspectRatio = pixelWidth / pixelHeight;
+                const { displayWidth, displayHeight, devicePixelRatio } = getDisplayMetrics(aspectRatio);
+
+                canvas.width = displayWidth * devicePixelRatio;
+                canvas.height = displayHeight * devicePixelRatio;
+                canvas.style.width = displayWidth + 'px';
+                canvas.style.height = displayHeight + 'px';
+
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.scale(devicePixelRatio, devicePixelRatio);
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.clearRect(0, 0, displayWidth, displayHeight);
+                ctx.drawImage(snapshot, 0, 0, displayWidth, displayHeight);
+
+                dimensionInfo.textContent = `Pixels: ${pixelWidth}×${pixelHeight} | Points: ${pointWidth}×${pointHeight} | Display: ${displayWidth}×${displayHeight} | JPEG`;
+            };
+            snapshot.src = canvas.toDataURL();
+        }
+
+        function updateFocusUI() {
+            document.body.classList.toggle('simulator-focused', simulatorFocused);
+            focusToggleBtn.textContent = simulatorFocused ? '↙ Exit Focus' : '⤢ Focus Simulator';
+            focusHelperText.textContent = simulatorFocused
+                ? 'Controls are hidden so the simulator can take most of the screen.'
+                : 'Hide the side panel and enlarge the simulator for phone use.';
+        }
+
+        function toggleSimulatorFocus() {
+            simulatorFocused = !simulatorFocused;
+            updateFocusUI();
+
+            if (currentMode === 'webrtc' && webrtcVideo.videoWidth > 0) {
+                resizeWebRTCVideo();
+            } else {
+                refreshCanvasFrame();
+            }
+        }
 
         // Function to check if DeviceLogsManager is available and initialize it
         function checkAndInitializeLogsManager() {
@@ -1914,10 +1892,9 @@
             switchMode('video');
             loadInstalledApps();
             loadAppsListState();
-            // Initialize logs and location
+            updateFocusUI();
             setTimeout(() => {
                 initLogViewer();
-                initLocationControls();
             }, 500);
         }
 
@@ -2261,7 +2238,8 @@
 
         function setupKeyboardShortcuts() {
             document.addEventListener('keydown', (e) => {
-                if (e.target !== textInput && e.target !== document.getElementById('urlInput') &&
+                const urlInput = document.getElementById('urlInput');
+                if (e.target !== textInput && e.target !== urlInput &&
                     e.target !== document.getElementById('logSearch') &&
                     e.target !== document.getElementById('latitudeInput') &&
                     e.target !== document.getElementById('longitudeInput')) {
@@ -2276,36 +2254,19 @@
                     case 'w': switchMode('webrtc'); break;
                     case 'v': switchMode('video'); break;
                     case 'c': switchMode('screenshot'); break;
-                    case 'h': pressButton('home'); break;
-                    case 'l': pressButton('lock'); break;
-                    case 's': pressButton('siri'); break;
-                    case 'p': pressButton('apple-pay'); break;
-                    case '=': case '+': pressVolumeButton('up'); break;
-                    case '-': case '_': pressVolumeButton('down'); break;
-                    case 'k': pressShakeButton(); break;
-                    case 'ArrowUp': e.preventDefault(); quickSwipe('up'); break;
-                    case 'ArrowDown': e.preventDefault(); quickSwipe('down'); break;
-                    case 'ArrowLeft': e.preventDefault(); quickSwipe('left'); break;
-                    case 'ArrowRight': e.preventDefault(); quickSwipe('right'); break;
-                    case ' ': e.preventDefault(); toggleSwipeMode(); break;
-
-                    case 'x': e.preventDefault(); takeDeviceScreenshot(); break;
-                    case 'Home': e.preventDefault(); pressHomeButton(); break;
-                    case 'r': e.preventDefault(); toggleOrientation(); break;
                     case 'a': e.preventDefault(); toggleAppsSection(); break;
-                    case 'l': // L for location
-                        e.preventDefault();
-                        toggleLocationSection();
-                        break;
+                    case 'f': e.preventDefault(); toggleSimulatorFocus(); break;
                 }
             });
 
             // Handle text input with Enter key
-            textInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    sendText();
-                }
-            });
+            if (textInput) {
+                textInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        sendText();
+                    }
+                });
+            }
         }
 
         window.addEventListener('beforeunload', () => {
@@ -2468,9 +2429,8 @@
                 // Update status less frequently
                 if (frameCount % 60 === 0 || now - performanceStats.lastUpdate > 2000) {
                     const serverFps = data.fps || 0;
-                    const modeText = swipeMode ? '✋ SWIPE MODE' : '👆 TAP MODE';
                     const dropRate = frameDropCount > 0 ? ` (${frameDropCount} drops)` : '';
-                    status.textContent = `🎥 ${modeText} | Frame: ${frameCount}, Client: ${performanceStats.averageFps}fps, Server: ${serverFps}fps${dropRate}`;
+                    status.textContent = `🎥 Live control | Frame: ${frameCount}, Client: ${performanceStats.averageFps}fps, Server: ${serverFps}fps${dropRate}`;
                     performanceStats.lastUpdate = now;
                     frameDropCount = 0; // Reset drop counter
                 }
@@ -2481,23 +2441,8 @@
         }
 
         function updateCanvasOptimized(img, data) {
-            // Calculate display size with better performance
-            const screenContainer = document.querySelector('.screen-container');
-            const containerWidth = screenContainer.clientWidth - 4; // Account for border
-            const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
             const aspectRatio = pixelWidth / pixelHeight;
-
-            let displayWidth = Math.min(containerWidth, 400);
-            let displayHeight = displayWidth / aspectRatio;
-
-            const maxHeight = window.innerHeight * 0.6;
-            if (displayHeight > maxHeight) {
-                displayHeight = maxHeight;
-                displayWidth = displayHeight * aspectRatio;
-            }
-
-            displayWidth = Math.round(displayWidth);
-            displayHeight = Math.round(displayHeight);
+            const { displayWidth, displayHeight, devicePixelRatio } = getDisplayMetrics(aspectRatio);
 
             // Only resize canvas if dimensions changed
             const newCanvasWidth = displayWidth * devicePixelRatio;
@@ -2509,6 +2454,7 @@
                 canvas.style.width = displayWidth + 'px';
                 canvas.style.height = displayHeight + 'px';
 
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
                 ctx.scale(devicePixelRatio, devicePixelRatio);
             }
 
@@ -2555,8 +2501,7 @@
 
                         updateCanvasOptimized(img, data);
 
-                        const modeText = swipeMode ? '✋ SWIPE MODE' : '👆 TAP MODE';
-                        status.textContent = `📷 ${modeText} | High-quality screenshot | JPEG format`;
+                        status.textContent = '📷 Screenshot mode | High-quality JPEG';
                     };
                     img.src = `data:image/jpeg;base64,${data.data}`;
                 }
@@ -2648,6 +2593,9 @@
 
         function toggleSwipeMode() {
             swipeMode = !swipeMode;
+            if (!swipeToggle) {
+                return;
+            }
             if (swipeMode) {
                 swipeToggle.textContent = '👆 Disable Swipe Mode';
                 swipeToggle.className = 'swipe-mode';
@@ -2724,6 +2672,7 @@
         }
 
         function sendText() {
+            if (!textInput) return;
             const text = textInput.value.trim();
             if (!text) return;
 
@@ -2738,6 +2687,7 @@
         }
 
         function clearText() {
+            if (!textInput) return;
             textInput.value = '';
         }
 
@@ -3018,23 +2968,13 @@
         function resizeWebRTCVideo() {
             if (!webrtcVideo.videoWidth || !webrtcVideo.videoHeight) return;
 
-            const screenContainer = document.querySelector('.screen-container');
-            const containerWidth = screenContainer.clientWidth - 4;
             const videoAspectRatio = webrtcVideo.videoWidth / webrtcVideo.videoHeight;
-
-            let displayWidth = Math.min(containerWidth, 400);
-            let displayHeight = displayWidth / videoAspectRatio;
-
-            const maxHeight = window.innerHeight * 0.6;
-            if (displayHeight > maxHeight) {
-                displayHeight = maxHeight;
-                displayWidth = displayHeight * videoAspectRatio;
-            }
+            const { displayWidth, displayHeight } = getDisplayMetrics(videoAspectRatio);
 
             webrtcVideo.style.width = Math.round(displayWidth) + 'px';
             webrtcVideo.style.height = Math.round(displayHeight) + 'px';
             webrtcVideo.style.maxWidth = '100%';
-            webrtcVideo.style.maxHeight = '60vh';
+            webrtcVideo.style.maxHeight = simulatorFocused ? '82vh' : '60vh';
 
             console.log(`WebRTC video sized: ${displayWidth}x${displayHeight}`);
         }
@@ -3370,6 +3310,7 @@
         // Add keyboard shortcut for URL opening
         document.addEventListener('keydown', (e) => {
             const urlInput = document.getElementById('urlInput');
+            if (!urlInput) return;
 
             // If URL input is focused and Enter is pressed, open the URL
             if (e.target === urlInput && e.key === 'Enter') {
@@ -3490,6 +3431,7 @@
             switchMode('video');
             loadInstalledApps();
             loadAppsListState(); // Add this line
+            updateFocusUI();
 
             setTimeout(() => {
                 console.log('Starting subsystem initialization...');
@@ -3497,11 +3439,6 @@
                 // Initialize logs
                 if (typeof initLogViewer === 'function') {
                     initLogViewer();
-                }
-
-                // Initialize location controls
-                if (typeof initLocationControls === 'function') {
-                    initLocationControls();
                 }
 
                 // Initialize media transfer
@@ -3517,42 +3454,8 @@
         window.addEventListener('resize', () => {
             if (currentMode === 'webrtc' && webrtcVideo.videoWidth > 0) {
                 resizeWebRTCVideo();
-            } else if (currentMode === 'video' && pixelWidth > 0) {
-                // Trigger a resize recalculation
-                setTimeout(() => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const containerWidth = canvas.parentElement.clientWidth - 24;
-                        const devicePixelRatio = window.devicePixelRatio || 1;
-                        const aspectRatio = pixelWidth / pixelHeight;
-
-                        let displayWidth = Math.min(containerWidth, 450);
-                        let displayHeight = displayWidth / aspectRatio;
-
-                        const maxHeight = window.innerHeight * 0.7;
-                        if (displayHeight > maxHeight) {
-                            displayHeight = maxHeight;
-                            displayWidth = displayHeight * aspectRatio;
-                        }
-
-                        displayWidth = Math.round(displayWidth);
-                        displayHeight = Math.round(displayHeight);
-
-                        canvas.width = displayWidth * devicePixelRatio;
-                        canvas.height = displayHeight * devicePixelRatio;
-                        canvas.style.width = displayWidth + 'px';
-                        canvas.style.height = displayHeight + 'px';
-
-                        ctx.scale(devicePixelRatio, devicePixelRatio);
-                        ctx.imageSmoothingEnabled = true;
-                        ctx.imageSmoothingQuality = 'high';
-                        ctx.clearRect(0, 0, displayWidth, displayHeight);
-                        ctx.drawImage(img, 0, 0, displayWidth, displayHeight);
-
-                        dimensionInfo.textContent = `Pixels: ${pixelWidth}×${pixelHeight} | Points: ${pointWidth}×${pointHeight} | Display: ${displayWidth}×${displayHeight}`;
-                    };
-                    img.src = canvas.toDataURL();
-                }, 100);
+            } else if (pixelWidth > 0) {
+                setTimeout(refreshCanvasFrame, 100);
             }
         });
 
