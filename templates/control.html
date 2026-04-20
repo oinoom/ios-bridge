@@ -116,6 +116,8 @@
 
         body.simulator-focused {
             margin: 12px;
+            overflow: hidden;
+            overscroll-behavior: none;
         }
 
         body.simulator-focused .title-section,
@@ -136,6 +138,14 @@
         body.simulator-focused #container {
             padding: 12px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+        }
+
+        .screen-container {
+            touch-action: manipulation;
+        }
+
+        body.simulator-focused .screen-container {
+            touch-action: none;
         }
 
         .controls-section {
@@ -1655,6 +1665,7 @@
         let currentOrientation = 'portrait'; // 'portrait' or 'landscape'
         let isCapturingScreenshot = false;
         let simulatorFocused = false;
+        let activeTouchGesture = null;
 
         window.deviceLogsManager = null;
 
@@ -1725,6 +1736,97 @@
             } else {
                 refreshCanvasFrame();
             }
+        }
+
+        function preventFocusedTouchScroll(event) {
+            if (!simulatorFocused) {
+                return;
+            }
+
+            if (event.target.closest('.screen-container')) {
+                event.preventDefault();
+            }
+        }
+
+        function attachTouchSurface(target, tapHandler, swipeHandler) {
+            if (!target) {
+                return;
+            }
+
+            const relativePoint = (touch) => {
+                const rect = target.getBoundingClientRect();
+                return {
+                    x: touch.clientX - rect.left,
+                    y: touch.clientY - rect.top,
+                };
+            };
+
+            target.addEventListener('touchstart', (event) => {
+                if (event.touches.length !== 1) {
+                    activeTouchGesture = null;
+                    return;
+                }
+
+                const point = relativePoint(event.touches[0]);
+                activeTouchGesture = {
+                    target,
+                    startX: point.x,
+                    startY: point.y,
+                    lastX: point.x,
+                    lastY: point.y,
+                    startedAt: Date.now(),
+                };
+
+                if (simulatorFocused) {
+                    event.preventDefault();
+                }
+            }, { passive: false });
+
+            target.addEventListener('touchmove', (event) => {
+                if (!activeTouchGesture || activeTouchGesture.target !== target || event.touches.length !== 1) {
+                    return;
+                }
+
+                const point = relativePoint(event.touches[0]);
+                activeTouchGesture.lastX = point.x;
+                activeTouchGesture.lastY = point.y;
+
+                if (simulatorFocused) {
+                    event.preventDefault();
+                }
+            }, { passive: false });
+
+            target.addEventListener('touchend', (event) => {
+                if (!activeTouchGesture || activeTouchGesture.target !== target) {
+                    return;
+                }
+
+                const changedTouch = event.changedTouches[0];
+                const point = changedTouch ? relativePoint(changedTouch) : {
+                    x: activeTouchGesture.lastX,
+                    y: activeTouchGesture.lastY,
+                };
+                const deltaX = point.x - activeTouchGesture.startX;
+                const deltaY = point.y - activeTouchGesture.startY;
+                const distance = Math.hypot(deltaX, deltaY);
+                const duration = Date.now() - activeTouchGesture.startedAt;
+
+                if (simulatorFocused) {
+                    event.preventDefault();
+                }
+
+                if (distance < 10 && duration < 350) {
+                    tapHandler(point.x, point.y);
+                } else {
+                    swipeHandler(activeTouchGesture.startX, activeTouchGesture.startY, point.x, point.y);
+                }
+
+                activeTouchGesture = null;
+            }, { passive: false });
+
+            target.addEventListener('touchcancel', () => {
+                activeTouchGesture = null;
+            }, { passive: true });
         }
 
         // Function to check if DeviceLogsManager is available and initialize it
@@ -2540,6 +2642,8 @@
             }
         };
 
+        attachTouchSurface(canvas, handleTap, handleSwipe);
+
         function handleTap(clickX, clickY) {
             if (pointWidth > 0 && pointHeight > 0) {
                 const displayWidth = parseInt(canvas.style.width);
@@ -3082,6 +3186,8 @@
             webrtcVideo.style.cursor = 'crosshair';
         }
 
+        attachTouchSurface(webrtcVideo, handleWebRTCTap, handleWebRTCSwipe);
+
         function handleWebRTCTap(clickX, clickY) {
             if (pointWidth > 0 && pointHeight > 0) {
                 const rect = webrtcVideo.getBoundingClientRect();
@@ -3458,6 +3564,8 @@
                 setTimeout(refreshCanvasFrame, 100);
             }
         });
+
+        document.addEventListener('touchmove', preventFocusedTouchScroll, { passive: false });
 
 
         async function getAppContainer() {
